@@ -80,6 +80,14 @@
     region: "{{ region }}"
     security_group: "{{ security_group.group_id }}"
     vpc_subnet_id: "{{ subnet.subnet.id }}"
-    key_name: "{{ keypair.key.name  }}"
+    network:
+      assign_public_ip: yes
+    key_name: "{{ keypair.key.name }}"
+    ebs_optimized: yes
+    volumes:
+    - device_name: "/dev/sda1"
+      ebs:
+        volume_type: gp2
+        volume_size: 200
     exact_count: 4
-
+  register: instances
