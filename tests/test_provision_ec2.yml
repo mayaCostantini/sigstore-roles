@@ -1,0 +1,13 @@
+---
+- name: test provisioning EC2 instances
+
+  pre-tasks:
+    - debug:
+      msg: 'Starting EC2 instances provisioning'
+
+  roles:
+    - provision-ec2
+
+  post-tasks:
+  - debug:
+    msg: 'EC2 instances have been provisioned'
