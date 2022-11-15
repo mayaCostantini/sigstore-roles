@@ -1,12 +1,11 @@
 ---
-# tasks file for provision-ec2
-- name: Provision Sigstore EC2 instances
+# tasks to provision EC2 instances
 
 - include_vars: "vars/main.yml"
   tags: provision
 
 - name: Create a VPC
-  ec2_vpc_net:
+  amazon.aws.ec2_vpc_net:
     name: "{{ vpc_name }}"
     cidr_block: "{{ vpc_cidr }}"
     region: "{{ region }}"
@@ -14,72 +13,72 @@
   register: vpc
 
 - name: Create a subnet
-  ec2_vpc_subnet:
-    name: "{{ subnet_name }}"
-    vpc_id: "{{ vcp_id }}"
+  amazon.aws.ec2_vpc_subnet:
+    vpc_id: "{{ vpc.vpc.id }}"
     region: "{{ region }}"
     cidr: "{{ subnet_cidr }}"
     map_public: yes
     resource_tags:
       Name: "{{ subnet_name }}"
-    register: subnet
+  register: subnet
     
 - name: Create a security group
-  ec2_group:
+  amazon.aws.ec2_group:
     name: "sigstore-the-hard-way-aws"
     description: "Security group for Sigstore deployment"
-    vpc_id: "{{ vpc_id }}"
+    vpc_id: "{{ vpc.vpc.id }}"
     region: "{{ region }}"
     rules:
       - proto: tcp
         ports:
-        - 22
+          - 22
         cidr_ip: 0.0.0.0/0
       - proto: tcp
         ports:
-        - 80
+          - 80
         cidr_ip: 0.0.0.0/0
       - proto: tcp
         ports:
-        - 443
+          - 443
         cidr_ip: 0.0.0.0/0
       - proto: icmp
         ports:
-        - -1
+          - -1
         cidr_ip: 0.0.0.0/0
       - proto: tcp
-        - from_port: 0
-        - to_port: 65535
+        from_port: 0
+        to_port: 65535
         cidr_ip: 172.31.50.0/24
       - proto: icmp
-        - ports:
+        ports:
           - -1
         cidr_ip: 172.31.50.0/24
       - proto: udp
-        - from_port: 0
-        - to_port: 65535
+        from_port: 0
+        to_port: 65535
         cidr_ip: 172.31.50.0/24
   register: security_group
 
 - name: Create a new EC2 key pair
-   ec2_key:
-    aws_access_key: "{{ aws_access_key }}"
-    aws_secret_key: "{{ aws_secret_key }}"
+  amazon.aws.ec2_key:
+    # AWS credentials can be specified via the command line or as variables
+    # aws_access_key: "{{ aws_access_key }}"
+    # aws_secret_key: "{{ aws_secret_key }}"
     name: ec2_keypair
     region: "{{ region }}"
-   register: keypair
+  register: keypair
 
 - name: copy keypair locally to connect to instances via SSH
   copy: content="{{ keypair.key.private_key }}" dest="{{ ec2_key_directory }}"key.pem
   when: keypair.changed == true
       
 - name: Create EC2 instances
-  ec2:
-    image: "ami-096800910c1b781ba"
+  amazon.aws.ec2_instance:
+    image_id: "ami-096800910c1b781ba"
     wait: yes
     instance_type: "t3.small"
     region: "{{ region }}"
-    group_id: "{{ security_group.group_id }}"
+    security_group: "{{ security_group.group_id }}"
     vpc_subnet_id: "{{ subnet.subnet.id }}"
     key_name: "{{ keypair.key.name  }}"
     exact_count: 4

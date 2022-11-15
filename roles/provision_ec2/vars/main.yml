@@ -4,17 +4,17 @@
 region: "eu-west-1"
 
 # VPC
-vpc_name: "sigstore-vpc"
+vpc_name: "sthw-ansible-demo-vpc"
 vpc_cidr: 172.31.0.0/16
 
 # Subnet
-subnet_name": "sigstore-the-hard-way"
+subnet_name: "sthw-ansible-demo-subnet"
 subnet_cidr: 172.31.50.0/24
 
 # Security group
-security_group_name: "sigstore-the-hard-way-sg"
+security_group_name: "sthw-ansible-demo-sg"
 
  
 # Local path to save EC2 keypair
-ec2_key_directory: "/home/sigstore/roles/sigstore-aws/"
+ec2_key_directory: "/home/vagrant/sthw-demo/keys/"
 keypair_name: "ec2_key_pair"

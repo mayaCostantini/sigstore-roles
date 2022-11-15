@@ -1,4 +1,4 @@
-Role Name
+Provision EC2 instances for the Sigstore infrastructure
 =========
 
 A brief description of the role goes here.

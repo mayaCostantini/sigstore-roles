@@ -1,0 +1,7 @@
+---
+- name: test provisioning EC2 instances
+  hosts: localhost
+  collections:
+    - amazon.aws
+  roles:
+    - provision_ec2
