@@ -12,6 +12,14 @@
     state: present
   register: vpc
 
+- name: Attach an Internet Gateway to the VPC
+  amazon.aws.ec2_vpc_igw:
+    vpc_id: "{{ vpc.vpc.id }}"
+    state: present
+    tags:
+      Name: "sthw-aws-igw"
+  register: vpcigw
+
 - name: Create a subnet
   amazon.aws.ec2_vpc_subnet:
     vpc_id: "{{ vpc.vpc.id }}"
@@ -89,5 +97,14 @@
       ebs:
         volume_type: gp2
         volume_size: 200
-    exact_count: 4
+    tags:
+      Name: "{{ item.name }}"
+  loop: "{{ instances_to_tag }}"
   register: instances
+
+- name: Allocate an Elastic IP for Rekor, Fulcio and OAuth2
+  amazon.aws.ec2_eip:
+    device_id: "{{ item.instance_ids[0] }}"
+    in_vpc: true
+  loop: "{{ instances.results }}"
+  when: item.instances[0].tags.Name != "sigstore-ctl"
