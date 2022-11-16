@@ -108,3 +108,21 @@
     in_vpc: true
   loop: "{{ instances.results }}"
   when: item.instances[0].tags.Name != "sigstore-ctl"
+  register: elastic_ips
+
+- name: Associate domain names to instances Elastic IP
+  amazon.aws.route53_zone:
+    zone: "{{ hosted_zone_name }}"
+    comment: "Hosted zone for Sigstore AWS deployment"
+  register: hosted_zone
+
+- name: Register public domain for Rekor, Fulcio and OAuth2
+  amazon.aws.route53:
+    state: present
+    zone: "{{ hosted_zone_name }}"
+    type: "A"
+    record: "{{ item.item.item.name.split('-')[1] }}.{{ hosted_zone_name }}"
+    value: "{{ item.public_ip }}"
+    ttl: 60
+    overwrite: true
+  loop: "{{ elastic_ips.results[:3] }}"

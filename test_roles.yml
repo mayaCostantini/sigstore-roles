@@ -5,3 +5,4 @@
     - amazon.aws
   roles:
     - provision_ec2
+    - deploy_rekor

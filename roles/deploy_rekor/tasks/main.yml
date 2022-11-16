@@ -1,0 +1,6 @@
+---
+# tasks file for deploy_rekor
+
+- include_vars: "vars/main.yml"
+  tags: rekor
+

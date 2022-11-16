@@ -1,4 +1,4 @@
-venv/i
+venv/
 *.log
 *+00:00.json
 

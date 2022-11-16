@@ -30,3 +30,8 @@ instances_public_ip:
   - name: "sigstore-rekor"
   - name: "sigstore-fulcio"
   - name: "sigstore-oauth2"
+
+# Hosted zone name
+# Change before committing:
+# hosted_zone_name: "sthw-aws-demo.click"
+hosted_zone_name: "sigstore-test-infra.click"
