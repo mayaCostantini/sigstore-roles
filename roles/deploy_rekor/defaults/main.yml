@@ -1,2 +1,14 @@
 ---
 # defaults file for deploy_rekor
+
+# MariaDB secure installation 
+root_password: root
+unix_socket_authentication: Y
+change_root_password: Y
+remove_anonymous_users: n
+disallow_remote_root_login: n
+remmove_test_db: Y
+reload_privilege_tables: Y
+trillian_db_name: trilliandb
+trillian_db_user: root
+trillian_db_password: root

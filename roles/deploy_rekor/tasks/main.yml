@@ -1,6 +1,191 @@
 ---
 # tasks file for deploy_rekor
 
-- include_vars: "vars/main.yml"
-  tags: rekor
+# Install dependencies
+- name: Remove man-db
+  apt:
+    pkg: man-db
+    state: absent
 
+- name: Install dependencies
+  apt:
+    pkg:
+      - mariadb-server
+      - git
+      - redis-server
+      - haproxy
+      - certbot
+      - golang-go
+    update_cache: yes
+  become: true
+
+# Build Rekor binaries and create systemd server unit
+- name: Clone the Rekor repository
+  ansible.builtin.git:
+    repo: https://github.com/sigstore/rekor.git
+    dest: /tmp/rekor
+    version: v0.4.0
+    force: yes
+
+- name: Build the Rekor CLI
+  ansible.builtin.shell:
+    cmd: go build -v -o rekor-cli
+    chdir: /tmp/rekor/cmd/rekor-cli
+
+- name: Move the Rekor CLI to /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/rekor/cmd/rekor-cli/rekor-cli
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+- name: Build the Rekor server
+  ansible.builtin.shell:
+    cmd: go build -v -o rekor-server
+    chdir: /tmp/rekor/cmd/rekor-server
+
+- name: Move the Rekor server to /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/rekor/cmd/rekor-server/rekor-server
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+- name: Create the Rekor server systemd unit
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/rekor-server.j2"
+    dest: /etc/systemd/system/rekor-server.service
+  become: true
+
+# Configure Rekor database backend
+- name: Configure MySQL secure installation
+  ansible.builtin.expect:
+    command: sudo mysql_secure_installation
+    responses:
+      'Enter current password for root': '{{ root_password }}'
+      'Switch to unix_socket authentication': '{{ unix_socket_authentication }}'
+      'Change the root password': '{{ change_root_password }}'
+      'New password:': '{{ trillian_db_password }}'
+      'Re-enter new password:': '{{ trillian_db_password }}'
+      'Remove anonymous users': '{{ remove_anonymous_users }}'
+      'Disallow root login remotely': '{{ disallow_remote_root_login }}'
+      'Remove test database and access to it': '{{ remmove_test_db }}'
+      'Reload privilege tables now': '{{ reload_privilege_tables }}'
+    timeout: 5
+
+- name: Replace placeholder database name in Rekor database creation script
+  ansible.builtin.replace:
+    path: /tmp/rekor/scripts/createdb.sh
+    regexp: '^DB="test"$'
+    replace: "DB={{ trillian_db_name }}"
+
+- name: Replace placeholder database user in Rekor database creation script
+  ansible.builtin.replace:
+    path: /tmp/rekor/scripts/createdb.sh
+    regexp: '^USER="test"$'
+    replace: "USER={{ trillian_db_user }}"
+
+- name: Replace placeholder database password in Rekor database creation script
+  ansible.builtin.replace:
+    path: /tmp/rekor/scripts/createdb.sh
+    regexp: '^PASS="zaphod"$'
+    replace: "PASS={{ trillian_db_password }}"
+  no_log: true
+
+- name: Replace placeholder database root password in Rekor database creation script
+  ansible.builtin.replace:
+    path: /tmp/rekor/scripts/createdb.sh
+    regexp: '^ROOTPASS=""$'
+    replace: "ROOTPASS=root"
+  no_log: true
+
+- name: hack for mysql conn
+  ansible.builtin.replace:
+    path: /tmp/rekor/scripts/createdb.sh
+    regexp: '^mysql <<MYSQL_SCRIPT$'
+    replace: "mysql --password=root <<MYSQL_SCRIPT"
+  no_log: true
+
+- name: Run the Rekor database creation script
+  ansible.builtin.shell:
+    cmd: /tmp/rekor/scripts/createdb.sh
+    chdir: /tmp/rekor/scripts
+  become: true
+
+- name: Run MariaDB daemon
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+
+# Build and configure Trillian
+- name: Clone the Trillian public repository
+  ansible.builtin.git:
+    repo: https://github.com/google/trillian
+    dest: /tmp/trillian
+    force: yes
+
+- name: Change the mysql provider configuration to match credentials set via ansible
+  ansible.builtin.replace:
+    path: /tmp/trillian/storage/mysql/provider.go
+    regexp: "\"test:zaphod.+?['\"]"
+    replace: "\"{{ trillian_db_user }}:{{ trillian_db_password }}@tcp(127.0.0.1:3306)/{{ trillian_db_name }}\""
+
+- name: Build the Trillian log server
+  ansible.builtin.shell:
+    cmd: "go build"
+    chdir: /tmp/trillian/cmd/trillian_log_server
+
+- name: Move the Trillian log server binary into /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/trillian/cmd/trillian_log_server/trillian_log_server
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+- name: Create the trillian log server systemd unit
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/trillian-log-server.j2"
+    dest: /etc/systemd/system/trillian-log-server.service
+  become: true
+
+- name: Build the Trillian log signer
+  ansible.builtin.shell:
+    cmd: go build
+    chdir: /tmp/trillian/cmd/trillian_log_signer
+
+- name: Move the Trillian log signer binary into /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/trillian/cmd/trillian_log_signer/trillian_log_signer
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+- name: Build the Trillian createtree binary
+  ansible.builtin.shell:
+    cmd: go build
+    chdir: /tmp/trillian/cmd/createtree
+
+- name: Move the Trillian createtree binary into /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/trillian/cmd/createtree/createtree
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+- name: Create the Trillian log signer systemd unit
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/trillian-log-signer.j2"
+    dest: /etc/systemd/system/trillian-log-signer.service
+  become: true
+
+- name: Run the Trillian log signer
+  ansible.builtin.systemd:
+    name: trillian-log-signer
+    state: started
+    daemon_reload: yes
+  become: true

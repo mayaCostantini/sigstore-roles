@@ -1,2 +1,5 @@
 ---
 # handlers file for deploy_rekor
+
+- name: reload_systemd
+  command: systemctl daemon-reload
