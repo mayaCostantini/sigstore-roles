@@ -1,8 +1,16 @@
 ---
-- name: test provisioning EC2 instances
-  hosts: localhost
-  collections:
-    - amazon.aws
+- hosts: rekor
   roles:
-    - provision_ec2
     - deploy_rekor
+
+- hosts: fulcio
+  roles:
+    - deploy_fulcio
+
+- hosts: oauth2
+  roles:
+    - deploy_oauth2
+
+- hosts: ctl
+  roles:
+    - deploy_ctl
