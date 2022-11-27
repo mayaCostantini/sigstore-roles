@@ -1,0 +1,9 @@
+#!/bin/bash
+
+DOMAIN="fulcio.sigstore-test-infra.click"
+
+cat "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" \
+    "/etc/letsencrypt/live/{{ domain }}/privkey.pem" \
+    > "/etc/ssl/private/{{ domain }}.pem"
+
+systemctl reload haproxy.service

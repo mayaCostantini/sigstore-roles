@@ -1,0 +1,16 @@
+---
+# defaults file for deploy_fulcio
+
+# TLS certificate
+ip: 172.31.50.109
+domain: fulcio.sigstore-test-infra.click
+http_01_port: 80
+email: mcostant@redhat.com
+
+# Root CA
+org: acme
+country: USA
+locality: New York
+province: AnyProvince
+postal_code: 00000
+street_address: AnyAddress
