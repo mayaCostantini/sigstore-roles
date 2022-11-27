@@ -1,0 +1,221 @@
+---
+# tasks file for deploy_fulcio
+
+# Install dependencies
+- name: Remove man-db
+  apt:
+    pkg: man-db
+    state: absent
+  become: true
+
+- name: Install dependencies
+  apt:
+    pkg:
+      - git
+      - gcc
+      - haproxy
+      - certbot
+      - golang-go
+      - softhsm
+      - opensc
+    update_cache: yes
+  become: true
+
+# Install Fulcio
+- name: Clone the Fulcio repository
+  ansible.builtin.git:
+    repo: https://github.com/sigstore/fulcio.git
+    dest: /tmp/fulcio
+    version: v0.5.2
+    force: yes
+
+- name: Build the Fulcio binary
+  ansible.builtin.shell:
+    cmd: go build .
+    chdir: "/tmp/fulcio"
+
+- name: Move the Fulcio binary to /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/fulcio/
+    remote_src: true
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+# Get TLS certificates
+- name: Obtain TLS certificates with certbot
+  ansible.builtin.shell:
+    cmd: >
+      certbot certonly --standalone --preferred-challenges http --http-01-address '{{ ip }}' --http-01-port '{{ http_01_port }}' -d '{{ domain }}' --non-interactive --agree-tos --email '{{ email }}'
+  become: true
+
+- name: Move PEM chain into place
+  ansible.builtin.shell:
+    cmd: cat "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" "/etc/letsencrypt/live/{{ domain }}/privkey.pem" | tee "/etc/ssl/private/{{ domain }}.pem" > /dev/null
+  become: true
+
+- name: Prepare post-renewal script
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/tls_post_renewal_script.j2"
+    dest: /etc/letsencrypt/renewal-hooks/post/haproxy-ssl-renew.sh
+  become: true
+
+- name: Replace port in certbot renewal config file
+  ansible.builtin.replace:
+    path: /etc/letsencrypt/renewal/fulcio.sigstore-test-infra.click.conf
+    regexp: "http01_port = d{1,6}"
+    replace: "http01_port = 9080"
+  become: true
+
+- name: Replace address in certbot renewal config file
+  ansible.builtin.replace:
+    path: /etc/letsencrypt/renewal/fulcio.sigstore-test-infra.click.conf
+    regexp: "http01_port = (?:[0-9]{1,3}.){3}[0-9]{1,3}$"
+    replace: "http01_address = 127.0.0.1"
+  become: true
+
+- name: Append post_hook line to certbot renewal config file
+  ansible.builtin.lineinfile:
+    path: /etc/letsencrypt/renewal/fulcio.sigstore-test-infra.click.conf
+    line: post_hook = /etc/letsencrypt/renewal-hooks/post/haproxy-ssl-renew.sh
+  become: true
+
+# HAProxy configuration and start
+- name: Create HAProxy configuration file
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/haproxy.j2"
+    dest: /etc/haproxy/haproxy.cfg
+  become: true
+
+- name: Check HAProxy config file syntax
+  ansible.builtin.shell:
+    cmd: /usr/sbin/haproxy -c -V -f /etc/haproxy/haproxy.cfg
+  become: true
+
+- name: Start HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: started
+
+# TODO: fix
+# - name: Test automatic renewal
+#   ansible.builtin.shell:
+#     cmd: certbot renew --dry-run
+#   become: true
+
+# File CA setup
+# - name: Generate key pair
+#   ansible.builtin.shell:
+#     cmd: openssl ecparam -genkey -name prime256v1 -noout -out unenc.key
+#     dest: /tmp/fulcio
+
+# - name: Encrypt the private key
+#   ansible.buitlin.shell:
+#     cmd: openssl ec -in unenc.key -out file_ca_key.pem -des3
+#     chdir: /tmp/fulcio
+
+# - name: Generate public key PEM file
+#   ansible.builtin.shell:
+#     cmd: openssl ec -in file_ca_key.pem -pubout -out file_ca_pub.pem
+#     chdir: /tmp/fulcio
+
+# - name: Generate a X509 certificate
+#   ansible.builtin.shell:
+#     cmd: openssl req -new -x509 -days 365 -extensions v3_ca -key file_ca_key.pem -out fulcio-root.pem
+#     chdir: /tmp/fulcio
+
+# - name: Remove unencrypted private key
+#   ansible.builtin.shell:
+#     cmd: rm unenc.key
+#     chdir: /tmp/fulcio
+
+# - name: Copy file_ca_key.pem to ~/fulcio-config/config
+#   ansible.builtin.copy:
+#     remote_src: yes
+#     src: /tmp/fulcio/file_ca_key.pem
+#     dest: ~/fulcio-config/config
+
+# - name: Copy file_ca_pub.pem to ~/fulcio-config/config
+#   ansible.builtin.copy:
+#     remote_src: yes
+#     src: /tmp/fulcio/file_ca_pub.pem
+#     dest: ~/fulcio-config/config
+
+# - name: Copy fulcio-root.pem to ~/fulcio-config/config
+#   ansible.builtin.copy:
+#     remote_src: yes
+#     src: /tmp/fulcio/fulcio-root.pem
+#     dest: ~/fulcio-config/config
+
+# SoftHSM configuration
+- name: Create the token directory for Sigstore
+  ansible.builtin.file:
+    path: ~/fulcio-config/tokens
+    mode: '0755'
+    state: directory
+
+- name: Create the SOFTHSM2 config file
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/softhsm2.j2"
+    dest: ~/fulcio-config/softhsm2.conf
+
+- name: Create an HSM Token
+  ansible.builtin.expect:
+    command: "softhsm2-util --init-token --slot 0 --label fulcio"
+    responses:
+      'Please enter SO PIN': 2324
+      'Please reenter SO PIN': 2324
+      'Please enter user PIN': 2324
+      'Please reenter user PIN': 2324
+  environment:
+    SOFTHSM2_CONF: "~/fulcio-config/softhsm2.conf"
+
+- name: Create the config directory for PKCS11
+  ansible.builtin.file:
+    path: ~/fulcio-config/config
+    mode: '0755'
+    state: directory
+
+- name: Create SoftHSM config for Fulcio
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/crypto11.j2"
+    dest: ~/fulcio-config/crypto11.conf
+
+# TODO: fix
+# - name: Create a private key within the HSM
+#   ansible.builtin.expect:
+#     command: "pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so --login --login-type user --keypairgen --id 1 --label PKCS11CA --key-type EC:secp384r1"
+#     responses:
+#       'Please enter User PIN': 2324
+
+- name: Create a root CA
+  ansible.builtin.shell:
+    cmd: fulcio createca --org='{{ org }}' --country='{{ country }}' --locality='{{ locality }}' --province='{{ province }}' --postal-code='{{ postal_code }}' --street-address='{{ street_address }}' --hsm-caroot-id 1 --out fulcio-root.pem
+
+- name: Check Root CA key usage
+  ansible.builtin.shell:
+    cmd: openssl x509 -in fulcio-root.pem -noout -ext extendedKeyUsage,keyUsage
+  # register ?
+
+# Fulcio config
+- name: Set DNS for OAuth2 / Dex server
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/oauth_config.j2"
+    dest: ~/fulcio-config/config.json
+
+# Start Fulcio
+- name: Create a fulcio service
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/fulcio_service.j2"
+    dest: /etc/systemd/system/fulcio.service
+  become: true
+
+- name: Run Fulcio service
+  ansible.builtin.systemd:
+    name: fulcio
+    state: started
+    daemon_reload: yes
+  become: true
+
+  

@@ -1,0 +1,16 @@
+---
+- hosts: rekor
+  roles:
+    - deploy_rekor
+
+- hosts: fulcio
+  roles:
+    - deploy_fulcio
+
+- hosts: oauth2
+  roles:
+    - deploy_oauth2
+
+- hosts: ctl
+  roles:
+    - deploy_ctl

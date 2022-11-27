@@ -1,0 +1,14 @@
+[Unit]
+Description=Trillian log server
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+ExecStart=/usr/local/bin/trillian_log_server --logtostderr
+
+[Install]
+WantedBy=multi-user.target

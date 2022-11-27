@@ -1,0 +1,14 @@
+[Unit]
+Description=Trillian log signer
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+ExecStart=/usr/local/bin/trillian_log_signer --logtostderr --force_master --rpc_endpoint=localhost:8190 -http_endpoint=localhost:8191  --batch_size=1000 --sequencer_guard_window=0 --sequencer_interval=200ms
+
+[Install]
+WantedBy=multi-user.target

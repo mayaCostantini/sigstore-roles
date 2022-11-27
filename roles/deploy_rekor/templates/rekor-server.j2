@@ -1,0 +1,14 @@
+[Unit]
+Description=Rekor server
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+ExecStart=/usr/local/bin/rekor-server serve --enable_retrieve_api=false
+
+[Install]
+WantedBy=multi-user.target

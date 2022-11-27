@@ -1,0 +1,16 @@
+[Unit]
+Description=fulcio
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Environment=SOFTHSM2_CONF=/etc/fulcio-config/config/softhsm2.cfg
+ExecStart=/usr/local/bin/fulcio serve --config-path=~/fulcio-config/config/config.json --ca=pkcs11ca --hsm-caroot-id=1 --pkcs11-config-path=~/fulcio-config/config/crypto11.conf --ct-log-url=http://sigstore-ctl:6105/sigstore --host=0.0.0.0 --port=5000
+WorkingDirectory=/etc/fulcio-config
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

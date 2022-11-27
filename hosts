@@ -1,0 +1,11 @@
+[rekor]
+rekor.sigstore-test-infra.click
+
+[fulcio]
+fulcio.sigstore-test-infra.click
+
+[oauth2]
+oauth2.sigstore-test-infra.click
+
+[ctl]
+34.248.14.52
