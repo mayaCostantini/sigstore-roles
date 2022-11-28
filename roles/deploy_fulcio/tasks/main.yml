@@ -38,7 +38,6 @@
   ansible.builtin.copy:
     remote_src: yes
     src: /tmp/fulcio/
-    remote_src: true
     dest: /usr/local/bin/
     mode: u=rwx,g=rx,o=x
   become: true

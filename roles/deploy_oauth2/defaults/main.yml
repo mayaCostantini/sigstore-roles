@@ -1,0 +1,8 @@
+---
+# defaults file for deploy_oauth2
+
+# TLS and HAProxy config
+email: mcostant@redhat.com
+domain: oauth2.sigstore-test-infra.click
+ip: 172.31.50.54
+http_01_port: 80
