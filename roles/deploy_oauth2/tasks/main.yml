@@ -1,0 +1,128 @@
+---
+# tasks file for deploy_oauth2
+
+# Install dependencies
+- name: Remove man-db
+  apt:
+    pkg: man-db
+    state: absent
+  become: true
+
+- name: Install dependencies
+  apt:
+    pkg:
+      - git
+      - gcc
+      - haproxy
+      - certbot
+      - golang-go
+      - make
+    update_cache: yes
+  become: true
+
+# Get TLS certificates
+- name: Obtain TLS certificates with certbot
+  ansible.builtin.shell:
+    cmd: >
+      certbot certonly --standalone --preferred-challenges http --http-01-address '{{ ip }}' --http-01-port '{{ http_01_port }}' -d '{{ domain }}' --non-interactive --agree-tos --email '{{ email }}'
+  become: true
+
+- name: Move PEM chain into place
+  ansible.builtin.shell:
+    cmd: cat "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" "/etc/letsencrypt/live/{{ domain }}/privkey.pem" | tee "/etc/ssl/private/{{ domain }}.pem" > /dev/null
+  become: true
+
+- name: Prepare post-renewal script
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/tls_post_renewal_script.j2"
+    dest: /etc/letsencrypt/renewal-hooks/post/haproxy-ssl-renew.sh
+  become: true
+
+- name: Replace port in certbot renewal config file
+  ansible.builtin.replace:
+    path: /etc/letsencrypt/renewal/oauth2.sigstore-test-infra.click.conf
+    regexp: "http01_port = d{1,6}"
+    replace: "http01_port = 9080"
+  become: true
+
+- name: Replace address in certbot renewal config file
+  ansible.builtin.replace:
+    path: /etc/letsencrypt/renewal/oauth2.sigstore-test-infra.click.conf
+    regexp: "http01_port = (?:[0-9]{1,3}.){3}[0-9]{1,3}$"
+    replace: "http01_address = 127.0.0.1"
+  become: true
+
+- name: Append post_hook line to certbot renewal config file
+  ansible.builtin.lineinfile:
+    path: /etc/letsencrypt/renewal/oauth2.sigstore-test-infra.click.conf
+    line: post_hook = /etc/letsencrypt/renewal-hooks/post/haproxy-ssl-renew.sh
+  become: true
+
+# HAProxy configuration and start
+- name: Create HAProxy configuration file
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/haproxy.j2"
+    dest: /etc/haproxy/haproxy.cfg
+  become: true
+
+- name: Check HAProxy config file syntax
+  ansible.builtin.shell:
+    cmd: /usr/sbin/haproxy -c -V -f /etc/haproxy/haproxy.cfg
+  become: true
+
+- name: Start HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: started
+
+# TODO: fix
+# - name: Test automatic renewal
+#   ansible.builtin.shell:
+#     cmd: certbot renew --dry-run
+#   become: true
+
+# Install Dex
+- name: Clone the Dex repository
+  ansible.builtin.git:
+    repo: https://github.com/dexidp/dex.git
+    dest: /tmp/dex/
+    force: yes
+
+- name: Build the Dex binary
+  ansible.builtin.shell:
+    cmd: make build
+    chdir: /tmp/dex/
+
+- name: Move the Dex binary to /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/dex/bin/dex
+    dest: /usr/local/bin
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+# The following steps assume that OAUTH credentials have been retrieved from an OIDC provider
+# and stored as environment variables for Dex configuration. 
+# For example: GOOGLE_CLIENT_ID="...", GOOGLE_CLIENT_SECRET="..."
+
+# Configure Dex
+# NOTE: this configuration uses SQLite as a storage, which is not appropriate for production deployments.
+# See the Dex documentation for storage options available: https://dexidp.io/docs/storage/#sqlite3
+- name: Create a comfiguration for Dex
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/dex_config.j2"
+    dest: /etc/dex/dex-config.yaml
+  become: true
+
+- name: Create the dex.db file for SQLite
+  ansible.builtin.file:
+    path: /var/dex/dex.db
+    mode: '0755'
+    state: file
+  become: true
+
+# Start Dex 
+- name: Start the Dex server
+  ansible.builtin.shell:
+    cmd: dex serve --web-http-addr=0.0.0.0:6000  /etc/dex/dex-config.yaml &
+  become: true
