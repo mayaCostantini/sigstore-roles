@@ -1,65 +1,23 @@
 ---
-# tasks file for deploy_rekor
+# tasks file for deploy_ct
 
 # Install dependencies
 - name: Remove man-db
   apt:
     pkg: man-db
     state: absent
+  become: true
 
 - name: Install dependencies
   apt:
     pkg:
       - mariadb-server
       - git
-      - redis-server
-      - haproxy
-      - certbot
       - golang-go
     update_cache: yes
   become: true
 
-# Build Rekor binaries and create systemd server unit
-- name: Clone the Rekor repository
-  ansible.builtin.git:
-    repo: https://github.com/sigstore/rekor.git
-    dest: /tmp/rekor
-    version: v0.4.0
-    force: yes
-
-- name: Build the Rekor CLI
-  ansible.builtin.shell:
-    cmd: go build -v -o rekor-cli
-    chdir: /tmp/rekor/cmd/rekor-cli
-
-- name: Move the Rekor CLI to /usr/local/bin
-  ansible.builtin.copy:
-    remote_src: yes
-    src: /tmp/rekor/cmd/rekor-cli/rekor-cli
-    dest: /usr/local/bin/
-    mode: u=rwx,g=rx,o=x
-  become: true
-
-- name: Build the Rekor server
-  ansible.builtin.shell:
-    cmd: go build -v -o rekor-server
-    chdir: /tmp/rekor/cmd/rekor-server
-
-- name: Move the Rekor server to /usr/local/bin
-  ansible.builtin.copy:
-    remote_src: yes
-    src: /tmp/rekor/cmd/rekor-server/rekor-server
-    dest: /usr/local/bin/
-    mode: u=rwx,g=rx,o=x
-  become: true
-
-- name: Create the Rekor server systemd unit
-  ansible.builtin.template:
-    src: "{{ role_path }}/templates/rekor-server.j2"
-    dest: /etc/systemd/system/rekor-server.service
-  become: true
-
-# Configure Rekor database backend
+# Configure database backend
 - name: Configure MySQL secure installation
   ansible.builtin.expect:
     command: sudo mysql_secure_installation
@@ -75,43 +33,43 @@
       'Reload privilege tables now': '{{ reload_privilege_tables }}'
     timeout: 5
 
-- name: Replace placeholder database name in Rekor database creation script
+- name: Replace placeholder database name in Trillian database creation script
   ansible.builtin.replace:
-    path: /tmp/rekor/scripts/createdb.sh
+    path: /tmp/ctl/scripts/createdb.sh
     regexp: '^DB="test"$'
     replace: "DB={{ trillian_db_name }}"
 
-- name: Replace placeholder database user in Rekor database creation script
+- name: Replace placeholder database user in Trillian database creation script
   ansible.builtin.replace:
-    path: /tmp/rekor/scripts/createdb.sh
+    path: /tmp/ctl/scripts/createdb.sh
     regexp: '^USER="test"$'
     replace: "USER={{ trillian_db_user }}"
 
-- name: Replace placeholder database password in Rekor database creation script
+- name: Replace placeholder database password in Trillian database creation script
   ansible.builtin.replace:
-    path: /tmp/rekor/scripts/createdb.sh
+    path: /tmp/ctl/scripts/createdb.sh
     regexp: '^PASS="zaphod"$'
     replace: "PASS={{ trillian_db_password }}"
   no_log: true
 
-- name: Replace placeholder database root password in Rekor database creation script
+- name: Replace placeholder database root password in Trillian database creation script
   ansible.builtin.replace:
-    path: /tmp/rekor/scripts/createdb.sh
+    path: /tmp/ctl/scripts/createdb.sh
     regexp: '^ROOTPASS=""$'
     replace: "ROOTPASS=root"
   no_log: true
 
 - name: hack for mysql conn
   ansible.builtin.replace:
-    path: /tmp/rekor/scripts/createdb.sh
+    path: /tmp/ctl/scripts/createdb.sh
     regexp: '^mysql <<MYSQL_SCRIPT$'
     replace: "mysql --password=root <<MYSQL_SCRIPT"
   no_log: true
 
-- name: Run the Rekor database creation script
+- name: Run the Trillian database creation script
   ansible.builtin.shell:
-    cmd: /tmp/rekor/scripts/createdb.sh
-    chdir: /tmp/rekor/scripts
+    cmd: /tmp/ctl/scripts/createdb.sh
+    chdir: /tmp/ctl/scripts
   become: true
 
 - name: Run MariaDB daemon
@@ -195,4 +153,71 @@
     name: trillian_log_server
     state: started
     daemon_reload: yes
+  become: true
+
+# CTFE server
+- name: Install CTFE server
+  ansible.builtin.shell:
+    cmd: go install github.com/google/certificate-transparency-go/trillian/ctfe/ct_server@latest
+  environment:
+    GOPATH: /tmp/ctl
+
+- name: Move ct_server binary to /usr/local/bin
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/ctl/bin/ct_server
+    dest: /usr/local/bin/
+    mode: u=rwx,g=rx,o=x
+  become: true
+
+# Create a private key
+- name: Generate key
+  ansible.builtin.shell:
+    cmd: openssl ecparam -genkey -name prime256v1 -noout -out unenc.key
+    chdir: /tmp/ctl/
+
+- name: Encrypt private key
+  ansible.builtin.expect:
+    command: openssl ec -in unenc.key -out privkey.pem -des3
+    responses:
+      'Enter pass phrase for PEM': '{{ private_key_password }}'
+      'Verifying - Enter pass phrase for PEM': '{{ private_key_password }}'
+    chdir: /tmp/ctl/
+
+- name: Remove the unencrypted key
+  ansible.builtin.file:
+    path: /tmp/ctl/unenc.key
+    state: absent
+
+# Create a Tree ID
+- name: Create a Tree ID
+  ansible.builtin.shell:
+    cmd: createtree --admin_server localhost:8091
+  register: createtree_output
+
+- name: Register Tree ID
+  ansible.builtin.set_fact:
+    log_id: "{{ createtree_output.stdout }}"
+    cacheable: true
+
+# Copy local fulcio-root.pem certificate to host
+- name: Copy Fulcio CA certificate to host
+  ansible.builtin.copy:
+    src: ~/sigstore-fulcio/fulcio-root.pem
+    dest: /etc/ctfe-config/fulcio-root.pem
+  become: true
+
+# Move the private key to /etc/ctfe-config
+- name: Move the private key to /etc/ctfe-config
+  ansible.builtin.copy:
+    remote_src: yes
+    src: /tmp/ctl/privkey.pem
+    dest: /etc/ctfe-config
+  become: true
+
+# Set up the config file
+- name: Set up the CTL config file
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/ct_cfg.j2"
+    dest: /etc/ctfe-config/
   become: true

@@ -103,7 +103,7 @@
 #     cmd: certbot renew --dry-run
 #   become: true
 
-# File CA setup
+# File CA setup: alternative to the SoftHSM approach
 # - name: Generate key pair
 #   ansible.builtin.shell:
 #     cmd: openssl ecparam -genkey -name prime256v1 -noout -out unenc.key
@@ -157,18 +157,23 @@
 - name: Create the SOFTHSM2 config file
   ansible.builtin.template:
     src: "{{ role_path }}/templates/softhsm2.j2"
-    dest: ~/fulcio-config/softhsm2.conf
+    dest: ~/fulcio-config/config/softhsm2.cfg
+
+- name: Add path to SoftHSM config to .bashrc
+  ansible.builtin.lineinfile:
+    path: ~/.bashrc
+    line: export SOFTHSM2_CONF="$HOME/fulcio-config/config/softhsm2.cfg"
 
 - name: Create an HSM Token
   ansible.builtin.expect:
-    command: "softhsm2-util --init-token --slot 0 --label fulcio"
+    command: "sudo softhsm2-util --init-token --slot 0 --label fulcio"
     responses:
-      'Please enter SO PIN': 2324
-      'Please reenter SO PIN': 2324
-      'Please enter user PIN': 2324
-      'Please reenter user PIN': 2324
+      'Please enter SO PIN': '2324'
+      'Please reenter SO PIN': '2324'
+      'Please enter user PIN': '2324'
+      'Please reenter user PIN': '2324'
   environment:
-    SOFTHSM2_CONF: "~/fulcio-config/softhsm2.conf"
+    SOFTHSM2_CONF: "~/fulcio-config/config/softhsm2.cfg"
 
 - name: Create the config directory for PKCS11
   ansible.builtin.file:
@@ -179,23 +184,29 @@
 - name: Create SoftHSM config for Fulcio
   ansible.builtin.template:
     src: "{{ role_path }}/templates/crypto11.j2"
-    dest: ~/fulcio-config/crypto11.conf
+    dest: ~/fulcio-config/config/crypto11.conf
 
-# TODO: fix
-# - name: Create a private key within the HSM
-#   ansible.builtin.expect:
-#     command: "pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so --login --login-type user --keypairgen --id 1 --label PKCS11CA --key-type EC:secp384r1"
-#     responses:
-#       'Please enter User PIN': 2324
+- name: Create a private key within the HSM
+  ansible.builtin.expect:
+    command: "pkcs11-tool --module /usr/lib/softhsm/libsofthsm2.so --login --login-type user --keypairgen --id 1 --label PKCS11CA --key-type EC:secp384r1"
+    responses:
+      'Please enter User PIN': 2324
+  become: true
 
 - name: Create a root CA
   ansible.builtin.shell:
-    cmd: fulcio createca --org='{{ org }}' --country='{{ country }}' --locality='{{ locality }}' --province='{{ province }}' --postal-code='{{ postal_code }}' --street-address='{{ street_address }}' --hsm-caroot-id 1 --out fulcio-root.pem
+    cmd: sudo fulcio createca --org='{{ org }}' --country='{{ country }}' --locality='{{ locality }}' --province='{{ province }}' --postal-code='{{ postal_code }}' --street-address='{{ street_address }}' --hsm-caroot-id 1 --out fulcio-root.pem
+    chdir: ~/fulcio-config/
 
 - name: Check Root CA key usage
   ansible.builtin.shell:
     cmd: openssl x509 -in fulcio-root.pem -noout -ext extendedKeyUsage,keyUsage
-  # register ?
+    chdir: ~/fulcio-config/
+
+- name: Fetch fulcio-root.pem file
+  ansible.builtin.fetch:
+    src: ~/fulcio-config/fulcio-root.pem
+    dest: ~/sigstore-fulcio/fulcio-root.pem
 
 # Fulcio config
 - name: Set DNS for OAuth2 / Dex server

@@ -1,0 +1,12 @@
+galaxy_info:
+  author: Maya Costantini
+  description: Deploy Sigstore's Certificate Transparency Log
+  company: Red Hat
+
+  license: MIT
+
+  min_ansible_version: 2.1
+
+  galaxy_tags: [sigstore]
+
+dependencies: []
