@@ -1,0 +1,11 @@
+config {
+  log_id: {{ log_id }}
+  prefix: "sigstore"
+  roots_pem_file: "/etc/ctfe-config/fulcio-root.pem"
+  private_key: {
+    [type.googleapis.com/keyspb.PEMKeyFile] {
+       path: "/etc/ctfe-config/privkey.pem"
+       password: {{ private_key_password }}
+    }
+  }
+}

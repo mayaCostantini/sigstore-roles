@@ -1,5 +1,5 @@
 ---
-# defaults file for deploy_rekor
+# defaults file for deploy_ctl
 
 # MariaDB secure installation 
 root_password: root
@@ -12,3 +12,6 @@ reload_privilege_tables: Y
 trillian_db_name: trilliandb
 trillian_db_user: root
 trillian_db_password: root
+
+# Private key
+private_key_password: 'default'
