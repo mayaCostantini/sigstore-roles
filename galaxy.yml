@@ -1,0 +1,25 @@
+namespace: mayacostantini
+
+name: sigstore_roles
+
+version: 0.0.1
+
+readme: README.md
+
+authors:
+- Maya Costantini <mcostant@redhat.com>
+
+description: Roles to deploy the Sigstore infrastructure in a non-containerized environment
+
+license_file: 'LICENSE.md'
+
+tags: [sigstore, security]
+
+dependencies: {}
+
+repository: https://github.com/mayaCostantini/sigstore-roles
+
+issues: https://github.com/mayaCostantini/sigstore-roles/issues
+
+build_ignore: []
+
